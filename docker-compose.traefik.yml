@@ -1,0 +1,60 @@
+services:
+  traefik:
+    image: traefik:v2.9
+    container_name: traefik
+    command:
+      - "--log.level=DEBUG"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - dev
+
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: comfyui
+    restart: unless-stopped
+    networks:
+      - dev
+    ports:
+      - "8188:8188"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all  # Enable GPU usage
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    depends_on:
+      - traefik
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1  # Adjust based on GPU requirements
+              capabilities: [gpu]
+    runtime: nvidia  # Specify NVIDIA runtime
+    volumes:
+      - models:/app/models  # Mount Docker volume for shared models - Make sure it exists, or remove 'external' in volumes section
+      - "./output:/app/output" # Local Ubuntu Folder      OR
+      # - "/mnt/c/Users/<YourUsername>/Pictures/Comfy:/app/output" # Local Windows Folder - Make sure it exists!
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comfyui.rule=Host(`comfyui.localhost`)"
+      - "traefik.http.routers.comfyui.entrypoints=dev"  # Ensure entrypoint matches Traefik
+      - "traefik.http.services.comfyui.loadbalancer.server.port=8188"  # Target internal port
+
+volumes:
+  models:
+    driver: local
+
+networks:
+  dev:
+    name: dev
+
+# Warning: Only one instance of Traefik can be running at a time.
+# Ensure there are no other Traefik instances running before starting this setup.
